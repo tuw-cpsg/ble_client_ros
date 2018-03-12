@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <glib.h>
 #include <sstream>
+#include <unistd.h>
 
 #define SEC_LEVEL "low" // or "medium" or "high"
 #define PSM 0
@@ -13,7 +14,8 @@
 
 std::map<GIOChannel *, BleClient *> BleClient::ioMap;
 GMainLoop *BleClient::event_loop = NULL;
-std::map<uint16_t, std::vector<void(*)(int, const uint8_t*)>> BleClient::handleToCbFct;
+std::vector<void(*)(const uint16_t, const int, const uint8_t*)>
+    BleClient::notificationCbFcts;
 
 extern "C" {
 GIOChannel *gatt_connect(const char *src, const char *dst,
@@ -30,7 +32,7 @@ void BleClient::connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 	GError *gerr = NULL;
 
 	if (err) {
-		printf("%s\n", err->message);
+		fprintf(stderr, "%s\n", err->message);
 		got_error = TRUE;
 	}
 
@@ -38,6 +40,7 @@ void BleClient::connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 				BT_IO_OPT_CID, &cid, BT_IO_OPT_INVALID);
 
 	if (gerr) {
+        fprintf(stderr, "connect_cb failed");
 		g_error_free(gerr);
 		mtu = ATT_DEFAULT_LE_MTU;
 	}
@@ -51,7 +54,7 @@ void BleClient::connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 
     g_idle_add(listen_start, attrib);
 
-    printf("Connection successful\n");
+    fprintf(stderr, "Connection successful\n");
 }
 
 BleClient::BleClient(const std::string &_src,
@@ -64,22 +67,24 @@ BleClient::BleClient(const std::string &_src,
     iochannel(NULL),
     state(DISCONNECTED)
 {
-    if(event_loop == NULL)
-    {
-        int err = pthread_create(&tid, NULL, &startGLoop, NULL);
-        if (err != 0)
-            fprintf(stderr, "Can't create thread :[%s].\n", strerror(err));
-        else
-            fprintf(stderr, "Thread created successfully.\n");
-    }
-
-    //TODO
-    //g_main_loop_quit(event_loop);
 }
 
 bool BleClient::connect()
 {
 	GError *gerr = NULL;
+
+    if(state != DISCONNECTED)
+        return false;
+
+    if(event_loop == NULL)
+    {
+        int err = pthread_create(&tid, NULL, &startGLoop, NULL);
+        if (err != 0)
+        {
+            fprintf(stderr, "Can't create thread :[%s].\n", strerror(err));
+            return false;
+        }
+    }
 
     iochannel = gatt_connect(src.c_str(),
             dstAddr.c_str(),
@@ -92,6 +97,7 @@ bool BleClient::connect()
     ioMap[iochannel] = this; 
     if(iochannel == NULL)
     {
+        fprintf(stderr, "cannot connect.");
         return false;
     }
 
@@ -100,11 +106,19 @@ bool BleClient::connect()
             src.c_str(),
             dstAddr.c_str(),
             dstType.c_str());
+
+    g_io_add_watch(iochannel, G_IO_HUP, channel_watcher, NULL);
+
     return true;
 }
 
 void BleClient::disconnect()
 {
+    if(state == DISCONNECTED)
+        return;
+
+    ioMap.erase(iochannel);
+
 	g_attrib_unref(attrib);
 	attrib = NULL;
 
@@ -113,6 +127,9 @@ void BleClient::disconnect()
 	iochannel = NULL;
 
     state = DISCONNECTED;
+
+    g_main_loop_quit(event_loop);
+    event_loop = NULL;
 }
 
 void BleClient::gattWriteCmd(const uint16_t _handle,
@@ -124,14 +141,10 @@ void BleClient::gattWriteCmd(const uint16_t _handle,
     gatt_write_cmd(attrib, _handle, _data, _size, NULL, NULL);
 }
 
-void BleClient::gattListenToHandle(const uint16_t _handle,
-        void (*cbFct)(int, const uint8_t *))
+void BleClient::gattListenToNotification(
+        void (*cbFct)(const uint16_t, const int, const uint8_t *))
 {
-    std::vector<void(*)(int,const uint8_t*)> cbFcts;
-    if(handleToCbFct.find(_handle) != handleToCbFct.end())
-        cbFcts = handleToCbFct[_handle];
-    cbFcts.push_back(cbFct);
-    handleToCbFct[_handle] = cbFcts;
+    notificationCbFcts.push_back(cbFct);
 }
 
 bool BleClient::isConnected()
@@ -159,28 +172,19 @@ void BleClient::events_handler(const uint8_t *pdu, uint16_t len, gpointer user_d
     switch(pdu[0])
     {
         case ATT_OP_HANDLE_NOTIFY:
-            fprintf(stderr, "Notification handle = 0x%04X value: ", handle);
+            //fprintf(stderr, "Notification handle = 0x%04X value: ", handle);
             break;
         default:
             fprintf(stderr, "Invalid opcode.\n");
             return;
     }
-
-    for(i = 3; i < len; i++)
+    
+    int fct_size = notificationCbFcts.size();
+    for(int i = 0; i < fct_size; i++)
     {
-        fprintf(stderr, "%02X ", pdu[i]);
-    }
-    fprintf(stderr, "\n");
-
-    if(handleToCbFct.find(handle) == handleToCbFct.end())
-        return;
-    std::vector<void(*)(int,const uint8_t*)> cbFcts = handleToCbFct[handle];
-
-    for(int i = 0; i < cbFcts.size(); i++)
-    {
-        void (*fct)(int, const uint8_t*);
-        fct = cbFcts[i];
-        (*fct)(len-3, &pdu[3]);
+        void (*fct)(const uint16_t, const int, const uint8_t*);
+        fct = notificationCbFcts[i];
+        (*fct)(handle, len-3, &pdu[3]);
     }
 }
 
@@ -206,13 +210,6 @@ void BleClient::char_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
         fprintf(stderr, "Protocoll error\n");
         return;
     }
-
-    fprintf(stderr, "Characteristics value/descriptor: ");
-    for(i = 0; i < vlen; i++)
-    {
-        fprintf(stderr, "%02X ", value[i]);
-    }
-    fprintf(stderr, "\n");
 }
 
 gboolean BleClient::listen_start(gpointer user_data)
@@ -221,6 +218,24 @@ gboolean BleClient::listen_start(gpointer user_data)
 
     g_attrib_register(attrib, ATT_OP_HANDLE_NOTIFY, GATTRIB_ALL_HANDLES,
             events_handler, attrib, NULL);
+
+    return false;
+}
+
+gboolean BleClient::channel_watcher(GIOChannel *io, GIOCondition cond, gpointer user_data)
+{
+    fprintf(stderr, "channel_watcher called");
+    
+    BleClient *bleClient = ioMap[io];
+    if(bleClient->isConnected() == true)
+    {
+        fprintf(stderr, "; lost connection, attempting to reconnect.\n");
+        bleClient->disconnect();
+        usleep(5000000);
+        bleClient->connect();
+        return false;
+    }
+    bleClient->disconnect();
 
     return false;
 }

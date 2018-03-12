@@ -7,6 +7,7 @@ add_definitions(`pkg-config --cflags glib-2.0`)
 set(CATKIN_DEPS
     roscpp
     ble_client_cpp
+    ble_client_msgs
     )
 
 find_package(catkin REQUIRED ${CATKIN_DEPS})
