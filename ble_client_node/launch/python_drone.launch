@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+
+<launch>
+  <param name="joy_node/dev"  value="/dev/input/js0" />
+  <param name="joy_node/autorepeat_rate"  value="100" />
+  <param name="droneControl/device" value="C4:D0:0D:79:59:91" />
+  <node name="joy_node" pkg="joy" type="joy_node" />
+  <node name="droneControl" pkg="ble_client_node" type="droneControl.py" />
+</launch>
