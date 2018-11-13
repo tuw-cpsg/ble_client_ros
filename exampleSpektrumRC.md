@@ -22,7 +22,7 @@ There a two different implementation for the BLE communication available. The fi
 
 ## Setting up gattlib
 ```
-git clone https://github.com/ChristianHirsch/libgatt.git
+git clone https://github.com/tuw-cpsg/ble_client_ros.git
 cd libgatt
 $ ./bootstrap
 $ ./configure
@@ -123,7 +123,7 @@ void loop() {
   currentMillis = millis(); 
   if (currentMillis - startMillis >= period)  {
     
-    if(!send){     // Sende nur wenn Daten da sind
+    if(!send){     
       Serial.write(SPEKTRUM_DSMX_11); //start 
       Serial.write((uint8_t)00);      // missed frame count
   
@@ -143,9 +143,9 @@ void loop() {
 }
 
 void SimbleeBLE_onReceive(char *dataBLE, int len){
-  if(send){ // warte bis Daten gesendet wurden bevor neue übernommen werden (Little Endien)
+  if(send){ 
     for(int i,e = 0;i<12 && i<len;i=i+2,e++){
-      bledata[e]=(((uint16_t)dataBLE[i+1])<<8) + (uint16_t)dataBLE[i];
+      bledata[e]=(((uint16_t)dataBLE[i+1])<<8) + (uint16_t)dataBLE[i]; // little Endien
     } 
     send = false;
   }
