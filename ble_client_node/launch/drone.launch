@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+
+<launch>
+  <param name="joy_node/dev"  value="/dev/input/js0" />
+  <param name="BLESender/device" value="C4:D0:0D:79:59:91" />
+  <node name="joy_node" pkg="joy" type="joy_node" />
+  <node name="BLESender" pkg="ble_client_node" type="ble_client_node" output="screen"/>
+</launch>
