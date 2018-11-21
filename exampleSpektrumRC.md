@@ -20,9 +20,10 @@ There a two different implementation for the BLE communication available. The fi
 
 (Note: currently there is a bug in the first implementation where after a number of data sent no more data are sent.) 
 
-## Setting up gattlib
+## Setting up libgatt
+Install the modified version of [libgatt](https://github.com/ChristianHirsch/libgatt).
 ```
-git clone https://github.com/tuw-cpsg/ble_client_ros.git
+git clone https://github.com/ChristianHirsch/libgatt.git
 cd libgatt
 $ ./bootstrap
 $ ./configure
@@ -43,7 +44,7 @@ cd bleWS
 ```
 2. Clone this repository 
 ```
-git clone https://github.com/ChristianHirsch/ble_client_ros.git
+git clone https://github.com/tuw-cpsg/ble_client_ros.git
 mv ble_client_ros/ src
 ```
 3. Create a new catkin workspace
